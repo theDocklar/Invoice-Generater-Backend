@@ -26,35 +26,120 @@ export const createInvoice = async (req, res) => {
   try {
     const invoiceData = req.body;
 
-    // Validation
+    // Detailed validation
+    const validationErrors = [];
+
+    if (!invoiceData.invoiceDate) {
+      validationErrors.push({
+        field: "invoiceDate",
+        message: "Invoice date is required",
+      });
+    }
+
     if (!invoiceData.dueDate) {
-      return res.status(400).json({
-        success: false,
+      validationErrors.push({
+        field: "dueDate",
         message: "Due date is required",
       });
     }
 
+    if (
+      invoiceData.dueDate &&
+      invoiceData.invoiceDate &&
+      invoiceData.dueDate < invoiceData.invoiceDate
+    ) {
+      validationErrors.push({
+        field: "dueDate",
+        message: "Due date must be after invoice date",
+      });
+    }
+
     if (!invoiceData.client) {
-      return res.status(400).json({
-        success: false,
+      validationErrors.push({
+        field: "client",
         message: "Client information is required",
       });
+    } else {
+      if (!invoiceData.client.name || invoiceData.client.name.trim() === "") {
+        validationErrors.push({
+          field: "clientName",
+          message: "Client name is required",
+        });
+      }
+      if (!invoiceData.client.email || invoiceData.client.email.trim() === "") {
+        validationErrors.push({
+          field: "clientEmail",
+          message: "Client email is required",
+        });
+      } else {
+        // Basic email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(invoiceData.client.email)) {
+          validationErrors.push({
+            field: "clientEmail",
+            message: "Please enter a valid email address",
+          });
+        }
+      }
     }
 
     if (!invoiceData.lineItems || invoiceData.lineItems.length === 0) {
-      return res.status(400).json({
-        success: false,
+      validationErrors.push({
+        field: "lineItems",
         message: "At least one line item is required",
+      });
+    } else {
+      // Validate each line item
+      invoiceData.lineItems.forEach((item, index) => {
+        if (!item.description || item.description.trim() === "") {
+          validationErrors.push({
+            field: `lineItem${index}Description`,
+            message: `Line item ${index + 1}: Description is required`,
+          });
+        }
+        if (!item.quantity || item.quantity === "" || item.quantity <= 0) {
+          validationErrors.push({
+            field: `lineItem${index}Quantity`,
+            message: `Line item ${index + 1}: Quantity must be greater than 0`,
+          });
+        }
+        if (
+          item.unitPrice === undefined ||
+          item.unitPrice === null ||
+          item.unitPrice === "" ||
+          item.unitPrice < 0
+        ) {
+          validationErrors.push({
+            field: `lineItem${index}UnitPrice`,
+            message: `Line item ${index + 1}: Unit price is required and cannot be negative`,
+          });
+        }
       });
     }
 
-    // Check if client exists
-    const { client, isNew } = await clientService.findOrCreateClient(
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please fix the following errors",
+        errors: validationErrors,
+      });
+    }
+
+    // Resolve client (validate, fetch existing, or create new)
+    const client = await clientService.resolveClientForInvoice(
       invoiceData.client,
       req.user._id,
     );
 
-    invoiceData.client.clientId = client._id;
+    // Use the client data from database
+    invoiceData.client = {
+      clientId: client._id,
+      name: client.name,
+      company: client.companyName || "",
+      address: client.address || "",
+      email: client.email,
+      phone: client.mobile || "",
+    };
 
     const newInvoice = await invoiceService.createInvoice(
       invoiceData,
@@ -68,6 +153,20 @@ export const createInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating invoice:", error);
+
+    // Handle client email duplicate error
+    if (error.field === "clientEmail" && error.statusCode === 400) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+        errors: [
+          {
+            field: error.field,
+            message: error.message,
+          },
+        ],
+      });
+    }
 
     if (error.name === "ValidationError") {
       const errors = Object.values(error.errors).map((err) => err.message);
@@ -139,6 +238,78 @@ export const updateInvoice = async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
+    const validationErrors = [];
+
+    if (
+      updateData.invoiceDate &&
+      updateData.dueDate &&
+      updateData.dueDate < updateData.invoiceDate
+    ) {
+      validationErrors.push({
+        field: "dueDate",
+        message: "Due date must be after invoice date",
+      });
+    }
+
+    if (updateData.client) {
+      if (!updateData.client.name || updateData.client.name.trim() === "") {
+        validationErrors.push({
+          field: "clientName",
+          message: "Client name is required",
+        });
+      }
+      if (!updateData.client.email || updateData.client.email.trim() === "") {
+        validationErrors.push({
+          field: "clientEmail",
+          message: "Client email is required",
+        });
+      } else {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(updateData.client.email)) {
+          validationErrors.push({
+            field: "clientEmail",
+            message: "Please enter a valid email address",
+          });
+        }
+      }
+    }
+
+    if (updateData.lineItems && updateData.lineItems.length > 0) {
+      updateData.lineItems.forEach((item, index) => {
+        if (!item.description || item.description.trim() === "") {
+          validationErrors.push({
+            field: `lineItem${index}Description`,
+            message: `Line item ${index + 1}: Description is required`,
+          });
+        }
+        if (!item.quantity || item.quantity === "" || item.quantity <= 0) {
+          validationErrors.push({
+            field: `lineItem${index}Quantity`,
+            message: `Line item ${index + 1}: Quantity must be greater than 0`,
+          });
+        }
+        if (
+          item.unitPrice === undefined ||
+          item.unitPrice === null ||
+          item.unitPrice === "" ||
+          item.unitPrice < 0
+        ) {
+          validationErrors.push({
+            field: `lineItem${index}UnitPrice`,
+            message: `Line item ${index + 1}: Unit price is required and cannot be negative`,
+          });
+        }
+      });
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please fix the following errors",
+        errors: validationErrors,
+      });
+    }
+
     const updatedInvoice = await invoiceService.updateInvoice(
       id,
       updateData,
@@ -152,6 +323,19 @@ export const updateInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error("Update Invoice Error:", error);
+
+    if (error.name === "ValidationError") {
+      const errors = Object.values(error.errors).map((err) => ({
+        field: err.path,
+        message: err.message,
+      }));
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors,
+      });
+    }
+
     res.status(400).json({
       success: false,
       message: error.message || "Failed to update invoice",

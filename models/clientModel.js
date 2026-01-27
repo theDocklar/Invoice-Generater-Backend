@@ -26,7 +26,6 @@ const clientSchema = mongoose.Schema(
     },
     mobile: {
       type: String,
-      required: [true, "Mobile number is required"],
       trim: true,
     },
     address: {

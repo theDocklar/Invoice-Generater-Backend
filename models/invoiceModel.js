@@ -117,7 +117,6 @@ const invoiceSchema = mongoose.Schema(
       },
       phone: {
         type: String,
-        required: [true, "Client phone number is required."],
         trim: true,
       },
     },
