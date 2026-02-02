@@ -178,6 +178,37 @@ class InvoiceService {
     }
     return invoice;
   }
+
+  // Update invoice status
+  async updateInvoiceStatus(invoiceId, status, userId) {
+    try {
+      const invoice = await Invoice.findOne({ _id: invoiceId, user: userId });
+
+      if (!invoice) {
+        throw new Error("Invoice not found");
+      }
+
+      const validStatuses = ["Paid", "Sent", "Overdue", "Draft", "Cancelled"];
+      if (!validStatuses.includes(status)) {
+        throw new Error(
+          `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        );
+      }
+
+      const updatedInvoice = await Invoice.findOneAndUpdate(
+        { _id: invoiceId, user: userId },
+        { status },
+        {
+          new: true,
+          runValidators: true,
+        },
+      );
+
+      return updatedInvoice;
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 const invoiceService = new InvoiceService();

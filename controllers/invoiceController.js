@@ -188,3 +188,52 @@ export const deleteInvoice = async (req, res) => {
     });
   }
 };
+
+// Update invoice status
+export const updateInvoiceStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required",
+      });
+    }
+
+    const updatedInvoice = await invoiceService.updateInvoiceStatus(
+      id,
+      status,
+      req.user._id,
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Invoice status updated successfully",
+      data: updatedInvoice,
+    });
+  } catch (error) {
+    console.error("Update Invoice Status Error:", error);
+
+    if (error.message === "Invoice not found") {
+      return res.status(404).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    if (error.message.includes("Invalid status")) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update invoice status",
+      error: error.message,
+    });
+  }
+};
