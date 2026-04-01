@@ -38,4 +38,4 @@ app.use("/api/users", userRoutes);
 app.listen(port, () => console.log(`Server running on port ${port}`));
 
 
-//Testing the github actions workflow
+//Testing the github actions workflow test
