@@ -6,84 +6,69 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-  CONTAINER_NAME: invoice-backend
-
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.version }}
-      image_name: ${{ steps.set-image-name.outputs.image_name }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set lowercase image name
-        id: set-image-name
-        run: echo "image_name=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Docker image
+        run: |
+          docker build -t backend:latest .
+          docker save backend:latest | gzip > backend.tar.gz
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.set-image-name.outputs.image_name }}
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Set lowercase image name
-        id: set-image-name
-        run: echo "image_name=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
-
-      - name: Deploy to server over SSH
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Copy to EC2
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
+          source: "backend.tar.gz"
+          target: "/home/ubuntu/app/"
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            set -e
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-            docker pull ghcr.io/${{ steps.set-image-name.outputs.image_name }}:latest
-            docker rm -f ${{ env.CONTAINER_NAME }} || true
-            docker run -d \
-              --name ${{ env.CONTAINER_NAME }} \
-              --restart unless-stopped \
-              -p 5001:5001 \
-              -e PORT=5001 \
-              -e MONGO_URI='${{ secrets.MONGO_URI }}' \
-              -e JWT_SECRET='${{ secrets.JWT_SECRET }}' \
-              -e FRONTEND_URL='${{ secrets.FRONTEND_URL }}' \
-              ghcr.io/${{ steps.set-image-name.outputs.image_name }}:latest
+            cd /home/ubuntu/app
+            
+            # Load the new image
+            gunzip -c backend.tar.gz | docker load
+            rm backend.tar.gz
+            
+            # Stop existing backend if running
+            docker stop backend 2>/dev/null || true
+            docker rm backend 2>/dev/null || true
+            
+            # Check if frontend exists
+            if docker images | grep -q "frontend"; then
+              echo "Frontend exists, starting full stack with docker-compose..."
+              docker-compose up -d
+            else
+              echo "Frontend not yet deployed, starting backend only..."
+              docker-compose up -d backend
+            fi
+            
+            # Clean up old images
+            docker image prune -f
+            
+            # Show status
+            docker ps
+            
+            # Verify
+            sleep 5
+            if docker ps | grep -q backend; then
+              echo "✅ Backend is running!"
+            else
+              echo "❌ Backend failed to start"
+              docker logs backend 2>&1 || true
+              exit 1
+            fi
