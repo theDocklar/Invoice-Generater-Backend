@@ -40,24 +40,21 @@ jobs:
           script: |
             cd /home/ubuntu/app
             
+            # Check disk space first
+            echo "Disk space:"
+            df -h /
+            
             # Load the new image
             gunzip -c backend.tar.gz | docker load
             rm backend.tar.gz
             
-            # Stop existing backend if running
-            docker stop backend 2>/dev/null || true
-            docker rm backend 2>/dev/null || true
+            # Stop and remove existing containers
+            docker-compose down 2>/dev/null || true
             
-            # Check if frontend exists
-            if docker images | grep -q "frontend"; then
-              echo "Frontend exists, starting full stack with docker-compose..."
-              docker-compose up -d
-            else
-              echo "Frontend not yet deployed, starting backend only..."
-              docker-compose up -d backend
-            fi
+            # Start backend only (don't pull, use local images)
+            docker-compose up -d --no-build backend
             
-            # Clean up old images
+            # Clean up old images to save space
             docker image prune -f
             
             # Show status
