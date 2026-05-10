@@ -51,7 +51,8 @@ const pdfService = {
     const totals = invoice.totals || {};
 
     const formatCurrency = (amount) => {
-      return `${invoice.currency || "$"}${parseFloat(amount || 0).toFixed(2)}`;
+      const roundedAmount = Math.round(Number(amount) || 0);
+      return `${invoice.currency || "$"}${roundedAmount.toLocaleString("en-US")}`;
     };
 
     const formatDate = (date) => {
@@ -289,10 +290,9 @@ const pdfService = {
         <tr>
           <th style="width: 35%">Description</th>
           <th class="center" style="width: 10%">Qty</th>
-          <th class="right" style="width: 13%">Unit price</th>
-          <th class="right" style="width: 13%">Discount</th>
-          <th class="right" style="width: 13%">Tax</th>
-          <th class="right" style="width: 16%">Amount</th>
+          <th class="right" style="width: 16%">Unit price</th>
+          <th class="right" style="width: 16%">Discount</th>
+          <th class="right" style="width: 23%">Amount</th>
         </tr>
       </thead>
       <tbody>
@@ -309,9 +309,6 @@ const pdfService = {
               }
             }
 
-            const afterDiscount = baseAmount - discountAmount;
-            const taxAmount = (afterDiscount * (item.tax || 0)) / 100;
-
             const discountDisplay =
               item.discount && item.discount.value > 0
                 ? item.discount.type === "percentage"
@@ -319,15 +316,12 @@ const pdfService = {
                   : formatCurrency(item.discount.value)
                 : "-";
 
-            const taxDisplay = item.tax && item.tax > 0 ? `${item.tax}%` : "-";
-
             return `
           <tr>
             <td class="description">${item.description || item.name || ""}</td>
             <td class="center">${item.quantity || "N/A"}</td>
             <td class="right">${formatCurrency(item.unitPrice || item.price)}</td>
             <td class="right">${discountDisplay}</td>
-            <td class="right">${taxDisplay}</td>
             <td class="right">${formatCurrency(item.lineTotal || baseAmount)}</td>
           </tr>
         `;

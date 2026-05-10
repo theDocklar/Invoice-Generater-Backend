@@ -1,24 +1,35 @@
 import Invoice from "../models/invoiceModel.js";
 
 class InvoiceService {
+  roundMoney(amount) {
+    return Math.round(Number(amount) || 0);
+  }
+
   // Function to generate a unique invoice number
   async generateInvoiceNumber(userId) {
-    const currentYear = new Date().getFullYear();
-    const prefix = `INV-${currentYear}-`;
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, "0");
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const yyyy = now.getFullYear();
+    const datePart = `${dd}${mm}${yyyy}`;
 
-    const lastInvoice = await Invoice.findOne({
+    // Keep sequence incrementing for every new invoice in this account.
+    const numberedInvoices = await Invoice.find({
       user: userId,
-      invoiceNumber: { $regex: `^${prefix}` },
-    })
-      .sort({ createdAt: -1 })
-      .select("invoiceNumber");
+      invoiceNumber: { $regex: "^\\d{8}-\\d{3}$" },
+    }).select("invoiceNumber");
 
-    let nextNumber = 1;
-    if (lastInvoice) {
-      const lastNumber = parseInt(lastInvoice.invoiceNumber.split("-").pop());
-      nextNumber = lastNumber + 1;
-    }
-    return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+    let maxSequence = 0;
+    numberedInvoices.forEach((invoice) => {
+      const [, sequencePart] = invoice.invoiceNumber.split("-");
+      const sequence = parseInt(sequencePart, 10);
+      if (!Number.isNaN(sequence) && sequence > maxSequence) {
+        maxSequence = sequence;
+      }
+    });
+
+    const nextSequence = maxSequence + 1;
+    return `${datePart}-${String(nextSequence).padStart(3, "0")}`;
   }
 
   //Function to calculate line item total
@@ -41,7 +52,7 @@ class InvoiceService {
     // Apply tax
     const taxAmount = (lineSubtotal * (tax || 0)) / 100;
 
-    return lineSubtotal + taxAmount;
+    return this.roundMoney(lineSubtotal + taxAmount);
   }
 
   // Function to calculate invoice totals
@@ -73,10 +84,10 @@ class InvoiceService {
     const grandTotal = subtotal - totalDiscount + totalTax;
 
     return {
-      subtotal: Number(subtotal.toFixed(2)),
-      totalDiscount: Number(totalDiscount.toFixed(2)),
-      totalTax: Number(totalTax.toFixed(2)),
-      grandTotal: Number(grandTotal.toFixed(2)),
+      subtotal: this.roundMoney(subtotal),
+      totalDiscount: this.roundMoney(totalDiscount),
+      totalTax: this.roundMoney(totalTax),
+      grandTotal: this.roundMoney(grandTotal),
     };
   }
 
